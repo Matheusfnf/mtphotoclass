@@ -1,23 +1,25 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStorage } from '@/hooks/useStorage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import Colors from '@/constants/Colors';
 
 export default function SelectFolderScreen() {
   const { photoUri } = useLocalSearchParams<{ photoUri: string }>();
-  const { folders, savePhoto, reloadFolders } = useStorage();
+  const { folders, savePhoto, loadFolders } = useStorage();
   const router = useRouter();
 
   const handleSelectFolder = async (folderId: string) => {
     try {
       if (photoUri) {
         await savePhoto(photoUri, folderId);
-        reloadFolders();
+        await loadFolders();
         router.push('/');
       }
     } catch (error) {
       console.error('Error saving photo:', error);
+      Alert.alert('Erro', 'Não foi possível salvar a foto');
     }
   };
 
@@ -37,14 +39,14 @@ export default function SelectFolderScreen() {
           <TouchableOpacity
             style={styles.folderItem}
             onPress={() => handleSelectFolder(item.id)}>
-            <IconSymbol name="folder" size={24} color="#007AFF" />
+            <IconSymbol name="folder" size={24} color={Colors.light.primary} />
             <View style={styles.folderInfo}>
               <Text style={styles.folderName}>{item.name}</Text>
               <Text style={styles.folderCount}>
                 {item.photos.length} {item.photos.length === 1 ? 'foto' : 'fotos'}
               </Text>
             </View>
-            <IconSymbol name="chevron.right" size={20} color="#999" />
+            <IconSymbol name="chevron.right" size={20} color={Colors.light.gray[400]} />
           </TouchableOpacity>
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -57,24 +59,24 @@ export default function SelectFolderScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.background,
   },
   header: {
     padding: 20,
     paddingTop: 40,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.background,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: Colors.light.gray[200],
   },
   title: {
     fontSize: 24,
     fontWeight: '600',
-    color: '#333',
+    color: Colors.light.text,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: Colors.light.gray[600],
   },
   listContent: {
     padding: 20,
@@ -91,15 +93,15 @@ const styles = StyleSheet.create({
   folderName: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#333',
+    color: Colors.light.text,
   },
   folderCount: {
     fontSize: 14,
-    color: '#666',
+    color: Colors.light.gray[600],
     marginTop: 2,
   },
   separator: {
     height: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: Colors.light.gray[200],
   },
 });

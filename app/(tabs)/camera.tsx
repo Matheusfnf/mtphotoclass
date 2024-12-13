@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Platform, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Platform, Modal, Alert } from 'react-native';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { PhotoOptionsMenu } from '@/components/PhotoOptionsMenu';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import Colors from '@/constants/Colors';
 
 export default function CameraScreen() {
   const [showOptionsModal, setShowOptionsModal] = useState(false);
@@ -15,22 +15,23 @@ export default function CameraScreen() {
       
       if (status === 'granted') {
         const result = await ImagePicker.launchCameraAsync({
-          quality: 0.8,
-          allowsEditing: true,
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 1,
         });
 
         if (!result.canceled && result.assets[0].uri) {
-          // Navega para a tela de seleção de pasta com a URI da foto
           router.push({
             pathname: "/(modals)/select-folder",
             params: { photoUri: result.assets[0].uri }
           });
         }
       } else {
-        alert('Precisamos de permissão para acessar sua câmera');
+        Alert.alert('Permissão Necessária', 'Precisamos de permissão para acessar sua câmera');
       }
+      setShowOptionsModal(false);
     } catch (error) {
       console.error('Error taking photo:', error);
+      setShowOptionsModal(false);
     }
   };
 
@@ -38,19 +39,20 @@ export default function CameraScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: true,
+        quality: 1,
       });
 
       if (!result.canceled && result.assets[0].uri) {
-        // Navega para a tela de seleção de pasta com a URI da foto
         router.push({
           pathname: "/(modals)/select-folder",
           params: { photoUri: result.assets[0].uri }
         });
       }
+      setShowOptionsModal(false);
     } catch (error) {
       console.error('Error selecting image:', error);
+      Alert.alert('Erro', 'Não foi possível selecionar a imagem');
+      setShowOptionsModal(false);
     }
   };
 
@@ -70,34 +72,39 @@ export default function CameraScreen() {
         </TouchableOpacity>
       </View>
 
-      {showOptionsModal && (
-        <PhotoOptionsMenu
-          onTakePhoto={handleTakePhoto}
-          onSelectFromGallery={handleSelectFromGallery}
-          onClose={() => setShowOptionsModal(false)}
-        />
-      )}
+      <Modal
+        visible={showOptionsModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowOptionsModal(false)}>
+        <View style={styles.optionsModalOverlay}>
+          <View style={styles.optionsModalContent}>
+            <TouchableOpacity
+              style={styles.optionButton}
+              onPress={handleTakePhoto}>
+              <IconSymbol name="camera" size={24} color={Colors.light.primary} />
+              <Text style={styles.optionText}>Tirar Foto</Text>
+            </TouchableOpacity>
 
-      {Platform.OS === 'android' && (
-        <Modal
-          visible={showOptionsModal}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setShowOptionsModal(false)}>
-          <TouchableOpacity
-            style={styles.optionsOverlay}
-            activeOpacity={1}
-            onPress={() => setShowOptionsModal(false)}>
-            <View style={styles.optionsContainer}>
-              <PhotoOptionsMenu
-                onTakePhoto={handleTakePhoto}
-                onSelectFromGallery={handleSelectFromGallery}
-                onClose={() => setShowOptionsModal(false)}
-              />
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
+            <View style={styles.optionDivider} />
+
+            <TouchableOpacity
+              style={styles.optionButton}
+              onPress={handleSelectFromGallery}>
+              <IconSymbol name="photo" size={24} color={Colors.light.primary} />
+              <Text style={styles.optionText}>Escolher da Galeria</Text>
+            </TouchableOpacity>
+
+            <View style={styles.optionDivider} />
+
+            <TouchableOpacity
+              style={styles.optionButton}
+              onPress={() => setShowOptionsModal(false)}>
+              <Text style={[styles.optionText, { color: Colors.light.error }]}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -111,43 +118,60 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    padding: 20,
   },
   title: {
     fontSize: 24,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: 'bold',
     marginTop: 16,
-    marginBottom: 8,
+    color: '#333',
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
-    textAlign: 'center',
+    marginTop: 8,
     marginBottom: 32,
+    textAlign: 'center',
   },
   button: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#007AFF',
+    backgroundColor: Colors.light.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,
+    gap: 8,
   },
   buttonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 8,
   },
-  optionsOverlay: {
+  optionsModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
-  optionsContainer: {
-    backgroundColor: '#fff',
+  optionsModalContent: {
+    backgroundColor: Colors.light.cardBackground,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  optionText: {
+    fontSize: 16,
+    marginLeft: 12,
+    color: Colors.light.text,
+    fontWeight: '500',
+  },
+  optionDivider: {
+    height: 1,
+    backgroundColor: Colors.light.gray[200],
   },
 });

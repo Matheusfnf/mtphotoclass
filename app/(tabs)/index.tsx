@@ -1,136 +1,210 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   StyleSheet, 
   View, 
   Text, 
   TouchableOpacity, 
   Modal, 
-  TextInput, 
-  ScrollView,
-  KeyboardAvoidingView,
+  TextInput,
+  Alert,
   Platform,
-  TouchableWithoutFeedback,
-  Keyboard
+  ScrollView,
+  SafeAreaView
 } from 'react-native';
+import { Link, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useStorage } from '@/hooks/useStorage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { Colors } from '@/constants/Colors';
-import { Link, useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Colors from '@/constants/Colors';
+import { SharedStyles } from '@/constants/Styles';
 
-export default function FoldersScreen() {
-  const { folders, saveFolder, reloadFolders } = useStorage();
+export default function IndexScreen() {
+  const router = useRouter();
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const { folders, createFolder, deleteFolder, loadFolders } = useStorage();
 
+  // Recarrega as pastas quando a tela recebe foco
   useFocusEffect(
-    React.useCallback(() => {
-      reloadFolders();
-    }, [reloadFolders])
+    useCallback(() => {
+      loadFolders();
+    }, [loadFolders])
   );
+
+  const filteredFolders = folders.filter(folder => {
+    const query = searchQuery.toLowerCase();
+    return (
+      folder.name.toLowerCase().includes(query) ||
+      folder.photos.some(photo => 
+        new Date(photo.createdAt)
+          .toLocaleDateString()
+          .toLowerCase()
+          .includes(query)
+      )
+    );
+  });
 
   const handleCreateFolder = async () => {
     if (newFolderName.trim()) {
-      await saveFolder(newFolderName);
+      await createFolder(newFolderName.trim());
       setNewFolderName('');
       setIsCreateModalVisible(false);
-      reloadFolders();
     }
   };
 
-  const closeModal = () => {
-    Keyboard.dismiss();
-    setNewFolderName('');
-    setIsCreateModalVisible(false);
+  const handleDeleteFolder = async (folderId: string) => {
+    Alert.alert(
+      'Apagar Pasta',
+      'Tem certeza que deseja apagar esta pasta? Todas as fotos serão removidas.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteFolder(folderId);
+            } catch (error) {
+              console.error('Error deleting folder:', error);
+              Alert.alert('Erro', 'Não foi possível apagar a pasta');
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView style={styles.content}>
-        {folders.length === 0 ? (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>Minhas Pastas</Text>
+            <Text style={styles.subtitle}>Organize suas fotos em pastas</Text>
+          </View>
+          <TouchableOpacity onPress={() => setIsCreateModalVisible(true)}>
+            <IconSymbol name="folder.badge.plus" size={28} color={Colors.light.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Barra de Pesquisa */}
+        <View style={styles.searchContainer}>
+          <IconSymbol name="magnifyingglass" size={20} color={Colors.light.gray[400]} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar pastas ou fotos..."
+            placeholderTextColor={Colors.light.gray[400]}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}>
+              <IconSymbol name="xmark.circle.fill" size={20} color={Colors.light.gray[400]} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {filteredFolders.length === 0 ? (
           <View style={styles.emptyState}>
-            <IconSymbol size={64} name="folder.badge.plus" color={Colors.light.tint} />
-            <Text style={styles.emptyStateText}>Nenhuma pasta encontrada</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Crie sua primeira pasta para começar a organizar suas fotos
+            <IconSymbol 
+              name={searchQuery ? "magnifyingglass" : "folder"} 
+              size={64} 
+              color={Colors.light.gray[400]} 
+            />
+            <Text style={styles.emptyStateTitle}>
+              {searchQuery ? "Nenhum resultado encontrado" : "Nenhuma pasta criada"}
+            </Text>
+            <Text style={styles.emptyStateSubtitle}>
+              {searchQuery 
+                ? "Tente buscar com outras palavras"
+                : "Crie sua primeira pasta para começar"
+              }
             </Text>
           </View>
         ) : (
-          <View style={styles.grid}>
-            {folders.map((folder) => (
+          <View style={styles.folderList}>
+            {filteredFolders.map((folder) => (
               <Link
                 key={folder.id}
                 href={{
-                  pathname: "/(modals)/folder",
+                  pathname: '/(modals)/folder',
                   params: { id: folder.id }
                 }}
                 asChild>
                 <TouchableOpacity style={styles.folderCard}>
-                  <IconSymbol size={32} name="folder.fill" color={Colors.light.tint} />
-                  <Text style={styles.folderName}>{folder.name}</Text>
-                  <Text style={styles.photoCount}>
-                    {folder.photos?.length || 0} {folder.photos?.length === 1 ? 'foto' : 'fotos'}
-                  </Text>
+                  <View style={styles.folderContent}>
+                    <IconSymbol name="folder" size={24} color={Colors.light.primary} />
+                    <View style={styles.folderInfo}>
+                      <Text style={styles.folderName}>{folder.name}</Text>
+                      <Text style={SharedStyles.smallText}>
+                        {folder.photos.length} fotos
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFolder(folder.id);
+                      }}>
+                      <IconSymbol name="trash" size={20} color={Colors.light.error} />
+                    </TouchableOpacity>
+                  </View>
                 </TouchableOpacity>
               </Link>
             ))}
           </View>
         )}
+        
+        {/* Espaço extra para garantir que as últimas pastas fiquem visíveis */}
+        <View style={styles.bottomSpacing} />
       </ScrollView>
 
-      <View style={styles.bottomContainer}>
-        <TouchableOpacity
-          style={styles.createButton}
-          onPress={() => setIsCreateModalVisible(true)}>
-          <IconSymbol size={24} name="folder.badge.plus" color="#FFFFFF" />
-          <Text style={styles.createButtonText}>Nova Pasta</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        style={styles.createButton}
+        onPress={() => setIsCreateModalVisible(true)}>
+        <View style={styles.createButtonContent}>
+          <IconSymbol name="plus" size={24} color="#FFFFFF" />
+          <Text style={SharedStyles.buttonText}>Nova Pasta</Text>
+        </View>
+      </TouchableOpacity>
 
       <Modal
-        animationType="slide"
-        transparent={true}
         visible={isCreateModalVisible}
-        onRequestClose={closeModal}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalContainer}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Nova Pasta</Text>
-                  <TouchableOpacity 
-                    onPress={closeModal}
-                    style={styles.closeButton}>
-                    <IconSymbol size={24} name="xmark" color="#666" />
-                  </TouchableOpacity>
-                </View>
-                <TextInput
-                  style={styles.input}
-                  value={newFolderName}
-                  onChangeText={setNewFolderName}
-                  placeholder="Nome da pasta"
-                  autoFocus
-                  returnKeyType="done"
-                  onSubmitEditing={handleCreateFolder}
-                />
-                <View style={styles.buttonRow}>
-                  <TouchableOpacity
-                    style={[styles.button, styles.cancelButton]}
-                    onPress={closeModal}>
-                    <Text style={styles.cancelButtonText}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.button, styles.confirmButton]}
-                    onPress={handleCreateFolder}>
-                    <Text style={styles.confirmButtonText}>Criar</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsCreateModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[SharedStyles.card, styles.modalContent]}>
+            <Text style={SharedStyles.title}>Nova Pasta</Text>
+            <TextInput
+              style={SharedStyles.input}
+              placeholder="Nome da pasta"
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[SharedStyles.buttonOutline, styles.modalButton]}
+                onPress={() => setIsCreateModalVisible(false)}>
+                <Text style={SharedStyles.buttonOutlineText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[SharedStyles.button, styles.modalButton]}
+                onPress={handleCreateFolder}>
+                <Text style={SharedStyles.buttonText}>Criar</Text>
+              </TouchableOpacity>
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -139,144 +213,145 @@ export default function FoldersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.background,
   },
-  content: {
+  scrollContent: {
+    flexGrow: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.light.text,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: Colors.light.gray[500],
+    marginTop: 4,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.light.gray[100],
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 16,
+  },
+  searchInput: {
     flex: 1,
+    fontSize: 16,
+    color: Colors.light.text,
+    marginLeft: 8,
+    padding: 4,
+  },
+  clearButton: {
+    padding: 4,
   },
   emptyState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
-    marginTop: 100,
   },
-  emptyStateText: {
+  emptyStateTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#666',
+    color: Colors.light.text,
     marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#999',
     textAlign: 'center',
   },
-  grid: {
+  emptyStateSubtitle: {
+    fontSize: 16,
+    color: Colors.light.gray[600],
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  folderList: {
     padding: 16,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
   },
   folderCard: {
-    width: '47%',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.light.gray[100],
     borderRadius: 12,
     padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  folderContent: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    aspectRatio: 1,
+    gap: 12,
+  },
+  folderInfo: {
+    flex: 1,
   },
   folderName: {
     fontSize: 16,
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 4,
-    textAlign: 'center',
+    fontWeight: '500',
+    color: Colors.light.text,
   },
-  photoCount: {
-    fontSize: 12,
-    color: '#666',
+  deleteButton: {
+    padding: 8,
+    marginLeft: 8,
   },
-  bottomContainer: {
-    position: 'absolute',
-    bottom: 80,
-    left: 0,
-    right: 0,
-    padding: 16,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+  bottomSpacing: {
+    height: 120, // Espaço extra para o botão de criar pasta e navbar
   },
   createButton: {
+    position: 'absolute',
+    bottom: 90,
+    left: 32,
+    right: 32,
+    backgroundColor: Colors.light.primary,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 1,
+  },
+  createButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.light.tint,
-    padding: 16,
-    borderRadius: 12,
-  },
-  createButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  modalContainer: {
-    flex: 1,
+    gap: 8,
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    width: '80%',
+    maxWidth: 400,
   },
-  modalHeader: {
+  modalButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    position: 'relative',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 24,
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  closeButton: {
-    position: 'absolute',
-    right: 0,
-    padding: 4,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  button: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f5f5f5',
-  },
-  confirmButton: {
-    backgroundColor: Colors.light.tint,
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+  modalButton: {
+    minWidth: 100,
   },
 });
