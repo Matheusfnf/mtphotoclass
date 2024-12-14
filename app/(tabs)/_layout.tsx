@@ -18,7 +18,7 @@ export default function TabLayout() {
         screenOptions={{
           tabBarActiveTintColor: Colors[colorScheme ?? 'light'].primary,
           tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].gray[400],
-          headerShown: true,
+          headerShown: false,
           tabBarButton: HapticTab,
           tabBarBackground: TabBarBackground,
           tabBarStyle: Platform.select({
@@ -27,7 +27,8 @@ export default function TabLayout() {
             },
             default: {},
           }),
-        }}>
+        }}
+      >
         <Tabs.Screen
           name="index"
           options={{
@@ -41,14 +42,6 @@ export default function TabLayout() {
           options={{
             title: 'Câmera',
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="camera.fill" color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="stats"
-          options={{
-            title: 'Armazenamento',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.pie.fill" color={color} />,
-            headerShown: false,
           }}
         />
       </Tabs>

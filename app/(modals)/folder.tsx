@@ -10,34 +10,35 @@ import {
   ScrollView,
   Image,
   TextInput,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import ImageViewer from 'react-native-image-zoom-viewer';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { useStorage } from '@/hooks/useStorage';
+import { useFolders } from '@/hooks/useFolders';
+import { usePhotos } from '@/hooks/usePhotos';
 import Colors from '@/constants/Colors';
 import { SharedStyles } from '@/constants/Styles';
+import { Database } from '@/lib/database.types';
+
+type Photo = Database['public']['Tables']['photos']['Row'];
 
 type PhotoItemProps = {
-  photo: {
-    id: string;
-    uri: string;
-  };
+  photo: Photo;
   isEditing: boolean;
-  onPress: () => void;
   onDelete: () => void;
-  onPhotoPress: () => void;
+  onPress: () => void;
 };
 
-const PhotoItem = ({ photo, isEditing, onDelete, onPhotoPress }: PhotoItemProps) => (
+const PhotoItem = ({ photo, isEditing, onDelete, onPress }: PhotoItemProps) => (
   <View style={styles.photoContainer}>
     <TouchableOpacity
       style={styles.photo}
-      onPress={onPhotoPress}
+      onPress={onPress}
       activeOpacity={0.8}>
-      <Image source={{ uri: photo.uri }} style={styles.photoImage} />
+      <Image source={{ uri: photo.image_url }} style={styles.photoImage} />
     </TouchableOpacity>
     {isEditing && (
       <TouchableOpacity
@@ -50,274 +51,241 @@ const PhotoItem = ({ photo, isEditing, onDelete, onPhotoPress }: PhotoItemProps)
 );
 
 export default function FolderScreen() {
-  const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
-  const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const { id: folderId } = useLocalSearchParams<{ id: string }>();
-  const { folders, savePhoto, deletePhoto, renameFolder, loadFolders } = useStorage();
   const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [isEditing, setIsEditing] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(-1);
+  const [isImageViewerVisible, setIsImageViewerVisible] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const { folders, updateFolder } = useFolders();
+  const { loading, getPhotos, uploadPhoto, deletePhoto } = usePhotos();
+  const [photos, setPhotos] = useState<Photo[]>([]);
 
-  const folder = folders.find(f => f.id === folderId);
+  const folder = folders.find(f => f.id === id);
 
   useEffect(() => {
     if (folder) {
-      setNewFolderName(folder.name);
+      setNewName(folder.name);
+      loadPhotos();
     }
   }, [folder]);
 
+  const loadPhotos = async () => {
+    if (id) {
+      const folderPhotos = await getPhotos(id);
+      setPhotos(folderPhotos);
+    }
+  };
+
   const handleRename = async () => {
-    if (!folder || !newFolderName.trim() || newFolderName.trim() === folder.name) return;
+    if (!folder || !newName.trim()) return;
 
     try {
-      await renameFolder(folder.id, newFolderName.trim());
-      setIsRenameModalVisible(false);
-    } catch (error) {
-      console.error('Error renaming folder:', error);
-      Alert.alert('Erro', 'Não foi possível renomear a pasta');
+      await updateFolder(folder.id, newName.trim());
+      setIsRenaming(false);
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Não foi possível renomear a pasta');
     }
   };
 
   const handleTakePhoto = async () => {
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (status === 'granted') {
-        const result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          quality: 1,
-        });
+    if (!folder) return;
 
-        if (!result.canceled && result.assets[0].uri) {
-          await savePhoto(result.assets[0].uri, folderId);
-          await loadFolders();
-        }
-        setShowOptionsModal(false);
-      } else {
-        Alert.alert('Permissão Necessária', 'Precisamos de permissão para acessar sua câmera');
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à sua câmera.');
+      return;
+    }
+
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const photo = await uploadPhoto(result.assets[0].uri, folder.id);
+        setPhotos(prev => [photo, ...prev]);
       }
-    } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert('Erro', 'Não foi possível tirar a foto');
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Não foi possível adicionar a foto');
     }
   };
 
   const handleSelectFromGallery = async () => {
+    if (!folder) return;
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à sua galeria de fotos.');
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 1,
       });
 
-      if (!result.canceled && result.assets[0].uri) {
-        await savePhoto(result.assets[0].uri, folderId);
-        await loadFolders();
+      if (!result.canceled && result.assets[0]) {
+        const photo = await uploadPhoto(result.assets[0].uri, folder.id);
+        setPhotos(prev => [photo, ...prev]);
       }
-      setShowOptionsModal(false);
-    } catch (error) {
-      console.error('Error selecting image:', error);
-      Alert.alert('Erro', 'Não foi possível selecionar a imagem');
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Não foi possível adicionar a foto');
     }
   };
 
-  const handleDeletePhoto = async (photoId: string) => {
-    Alert.alert(
-      'Apagar Foto',
-      'Tem certeza que deseja apagar esta foto?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deletePhoto(folderId, photoId);
-              await loadFolders();
-            } catch (error) {
-              console.error('Error deleting photo:', error);
-              Alert.alert('Erro', 'Não foi possível excluir a foto');
-            }
-          },
-        },
-      ]
-    );
+  const handleDeletePhoto = async (photo: Photo) => {
+    try {
+      await deletePhoto(photo);
+      setPhotos(prev => prev.filter(p => p.id !== photo.id));
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Não foi possível deletar a foto');
+    }
   };
 
   if (!folder) {
     return (
-      <View style={styles.container}>
-        <Text style={SharedStyles.text}>Pasta não encontrada</Text>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.light.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={[SharedStyles.header, styles.header]}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}>
+          style={styles.headerButton}
+          onPress={() => router.back()}>
           <IconSymbol name="chevron.left" size={24} color={Colors.light.text} />
         </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.titleContainer}
-          onPress={() => {
-            setNewFolderName(folder.name);
-            setIsRenameModalVisible(true);
-          }}>
-          <Text style={SharedStyles.headerTitle}>{folder.name}</Text>
-        </TouchableOpacity>
 
-        {folder.photos.length > 0 && (
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => setShowOptionsModal(true)}>
-            <IconSymbol name="trash" size={24} color={Colors.light.error} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Modal de Renomear */}
-      <Modal
-        visible={isRenameModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setIsRenameModalVisible(false)}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        {isRenaming ? (
+          <View style={styles.renameContainer}>
             <TextInput
-              style={styles.modalInput}
-              value={newFolderName}
-              onChangeText={setNewFolderName}
-              placeholder="Nome da pasta"
-              placeholderTextColor={Colors.light.gray[400]}
+              style={styles.renameInput}
+              value={newName}
+              onChangeText={setNewName}
               autoFocus
-              selectTextOnFocus
+              onBlur={() => {
+                handleRename();
+                setIsRenaming(false);
+              }}
+              onSubmitEditing={handleRename}
             />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => setIsRenameModalVisible(false)}>
-                <Text style={styles.modalButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonConfirm]}
-                onPress={handleRename}>
-                <Text style={[styles.modalButtonText, { color: Colors.light.primary }]}>Renomear</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <ScrollView style={styles.content}>
-        {folder.photos.length === 0 ? (
-          <View style={styles.emptyState}>
-            <IconSymbol name="photo" size={64} color={Colors.light.gray[400]} />
-            <Text style={[SharedStyles.subtitle, styles.emptyStateText]}>
-              Nenhuma foto ainda
-            </Text>
-            <Text style={SharedStyles.text}>
-              Adicione fotos para começar
-            </Text>
           </View>
         ) : (
-          <View style={styles.photoGrid}>
-            {folder.photos.map((photo, index) => (
-              <PhotoItem
-                key={photo.id}
-                photo={photo}
-                isEditing={false}
-                onPress={() => setIsEditing(true)}
-                onDelete={() => handleDeletePhoto(photo.id)}
-                onPhotoPress={() => setSelectedImageIndex(index)}
-              />
-            ))}
-          </View>
+          <TouchableOpacity style={styles.titleContainer} onPress={() => setIsRenaming(true)}>
+            <Text style={styles.title}>{folder.name}</Text>
+          </TouchableOpacity>
         )}
-      </ScrollView>
 
-      {!isRenameModalVisible && (
-        <TouchableOpacity
-          style={[SharedStyles.button, styles.fab]}
-          onPress={() => setShowOptionsModal(true)}>
-          <IconSymbol name="plus" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-
-      {showOptionsModal && (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setShowOptionsModal(false)}>
-          <View style={styles.optionsModalOverlay}>
-            <View style={styles.optionsModalContent}>
-              <TouchableOpacity
-                style={styles.optionButton}
-                onPress={() => {
-                  handleTakePhoto();
-                }}>
-                <IconSymbol name="camera" size={24} color={Colors.light.primary} />
-                <Text style={styles.optionText}>Tirar Foto</Text>
-              </TouchableOpacity>
-
-              <View style={styles.optionDivider} />
-
-              <TouchableOpacity
-                style={styles.optionButton}
-                onPress={() => {
-                  handleSelectFromGallery();
-                }}>
-                <IconSymbol name="photo" size={24} color={Colors.light.primary} />
-                <Text style={styles.optionText}>Escolher da Galeria</Text>
-              </TouchableOpacity>
-
-              <View style={styles.optionDivider} />
-
-              <TouchableOpacity
-                style={styles.optionButton}
-                onPress={() => setShowOptionsModal(false)}>
-                <Text style={[styles.optionText, { color: Colors.light.error }]}>Cancelar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {selectedImageIndex !== null && (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setSelectedImageIndex(null)}>
-          <View style={styles.imageViewerContainer}>
-            <ImageViewer
-              imageUrls={[{ url: folder.photos[selectedImageIndex].uri }]}
-              index={0}
-              enableSwipeDown
-              onSwipeDown={() => setSelectedImageIndex(null)}
-              enablePreload
-              saveToLocalByLongPress={false}
-              renderHeader={() => (
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  onPress={() => setSelectedImageIndex(null)}>
-                  <IconSymbol name="xmark" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              )}
-              renderIndicator={() => null}
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => setShowOptionsMenu(true)}>
+            <IconSymbol name="plus.circle.fill" size={24} color={Colors.light.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.headerButton, isEditing && styles.headerButtonActive]}
+            onPress={() => setIsEditing(!isEditing)}>
+            <IconSymbol 
+              name="trash" 
+              size={24} 
+              color={isEditing ? Colors.light.error : Colors.light.gray[400]} 
             />
-          </View>
-        </Modal>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.light.primary} />
+        </View>
+      ) : photos.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <IconSymbol name="photo" size={64} color={Colors.light.gray[400]} />
+          <Text style={styles.emptyText}>Nenhuma foto nesta pasta</Text>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setShowOptionsMenu(true)}>
+            <Text style={styles.addButtonText}>Adicionar Foto</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.photosGrid}>
+          {photos.map((photo, index) => (
+            <PhotoItem
+              key={photo.id}
+              photo={photo}
+              isEditing={isEditing}
+              onDelete={() => handleDeletePhoto(photo)}
+              onPress={() => {
+                setSelectedPhotoIndex(index);
+                setIsImageViewerVisible(true);
+              }}
+            />
+          ))}
+        </ScrollView>
       )}
-    </View>
+
+      <Modal
+        visible={showOptionsMenu}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowOptionsMenu(false)}>
+        <TouchableOpacity 
+          style={styles.optionsModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsMenu(false)}>
+          <View style={styles.optionsModalContent}>
+            <TouchableOpacity
+              style={styles.optionButton}
+              onPress={handleTakePhoto}>
+              <IconSymbol name="camera" size={24} color={Colors.light.primary} />
+              <Text style={styles.optionText}>Tirar Foto</Text>
+            </TouchableOpacity>
+
+            <View style={styles.optionDivider} />
+
+            <TouchableOpacity
+              style={styles.optionButton}
+              onPress={handleSelectFromGallery}>
+              <IconSymbol name="photo" size={24} color={Colors.light.primary} />
+              <Text style={styles.optionText}>Escolher da Galeria</Text>
+            </TouchableOpacity>
+
+            <View style={styles.optionDivider} />
+
+            <TouchableOpacity
+              style={styles.optionButton}
+              onPress={() => setShowOptionsMenu(false)}>
+              <IconSymbol name="xmark" size={24} color={Colors.light.error} />
+              <Text style={[styles.optionText, { color: Colors.light.error }]}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={isImageViewerVisible}
+        transparent
+        onRequestClose={() => setIsImageViewerVisible(false)}>
+        <ImageViewer
+          imageUrls={photos.map(photo => ({ url: photo.image_url }))}
+          index={selectedPhotoIndex}
+          onCancel={() => setIsImageViewerVisible(false)}
+          enableSwipeDown
+          onSwipeDown={() => setIsImageViewerVisible(false)}
+        />
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -330,109 +298,100 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.light.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.gray[200],
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    padding: 8,
+  },
+  headerButtonActive: {
+    backgroundColor: Colors.light.error,
+    borderRadius: 8,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.light.text,
+    textAlign: 'center',
   },
   titleContainer: {
     flex: 1,
     alignItems: 'center',
+    marginHorizontal: 16,
+  },
+  renameContainer: {
+    flex: 1,
+    marginHorizontal: 16,
+  },
+  renameInput: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.light.text,
+    textAlign: 'center',
+    padding: 8,
+    backgroundColor: Colors.light.gray[100],
+    borderRadius: 8,
+  },
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
-  },
-  headerContent: {
-    flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
-  renameButton: {
-    padding: 8,
-  },
-  content: {
+  emptyContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
   },
-  backButton: {
-    padding: 8,
+  emptyText: {
+    fontSize: 16,
+    color: Colors.light.gray[400],
+    marginTop: 16,
+    marginBottom: 24,
   },
-  editButton: {
-    padding: 8,
+  addButton: {
+    backgroundColor: Colors.light.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
-  editButtonText: {
-    color: Colors.light.primary,
+  addButtonText: {
+    color: Colors.light.white,
     fontSize: 16,
     fontWeight: '600',
   },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  emptyStateText: {
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  photoGrid: {
+  photosGrid: {
+    padding: 8,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 8,
   },
   photoContainer: {
-    width: '44%',
+    width: '33.33%',
     aspectRatio: 1,
-    margin: '3%',
-    position: 'relative',
+    padding: 4,
   },
   photo: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: Colors.light.gray[200],
   },
   photoImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   deleteButton: {
     position: 'absolute',
-    top: -12,
-    right: -12,
-    padding: 8,
-    backgroundColor: Colors.light.background,
-    borderRadius: 16,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 32,
-    right: 32,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    padding: 0,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    zIndex: 2,
-    padding: 8,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-  },
-  imageViewerContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  imageCounter: {
-    position: 'absolute',
-    top: 40,
-    left: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 8,
-    borderRadius: 16,
-  },
-  imageCounterText: {
-    color: '#FFFFFF',
-    fontSize: 14,
+    top: 8,
+    right: 8,
+    backgroundColor: Colors.light.white,
+    borderRadius: 12,
   },
   optionsModalOverlay: {
     flex: 1,
@@ -460,48 +419,5 @@ const styles = StyleSheet.create({
   optionDivider: {
     height: 1,
     backgroundColor: Colors.light.gray[200],
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Colors.light.background,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
-  },
-  modalInput: {
-    fontSize: 16,
-    color: Colors.light.text,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.light.gray[300],
-    paddingVertical: 12,
-    marginBottom: 16,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.gray[200],
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalButtonCancel: {
-    borderRightWidth: 1,
-    borderRightColor: Colors.light.gray[200],
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: Colors.light.text,
   },
 });

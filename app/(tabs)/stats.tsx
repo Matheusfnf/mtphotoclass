@@ -1,158 +1,75 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import * as FileSystem from 'expo-file-system';
-import { CircularProgressBase } from 'react-native-circular-progress-indicator';
-import { useFocusEffect } from '@react-navigation/native';
-import { useStorage, storageEmitter } from '@/hooks/useStorage';
+import React from 'react';
+import { StyleSheet, View, Text, ScrollView } from 'react-native';
+import { useFolders } from '@/hooks/useFolders';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import Colors from '@/constants/Colors';
-import { SharedStyles } from '@/constants/Styles';
-import { Ionicons } from '@expo/vector-icons';
-
-function formatBytes(bytes: number) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-}
 
 export default function StatsScreen() {
-  const [totalSpace, setTotalSpace] = useState(0);
-  const [usedSpace, setUsedSpace] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [isReloading, setIsReloading] = useState(false);
-  const { folders, loadFolders } = useStorage();
-  const hasLoadedOnFocus = useRef(false);
+  const { folders, loading } = useFolders();
 
-  const loadStorageInfo = useCallback(async () => {
-    try {
-      setLoading(true);
-      
-      // Obtém informações do armazenamento total do dispositivo
-      const totalMem = await FileSystem.getTotalDiskCapacityAsync();
-      
-      // Calcula um valor aproximado baseado no número de fotos (5MB por foto em média)
-      const AVERAGE_PHOTO_SIZE = 5 * 1024 * 1024; // 5MB em bytes
-      const totalPhotos = folders.reduce((total, folder) => total + folder.photos.length, 0);
-      const estimatedUsedSpace = totalPhotos * AVERAGE_PHOTO_SIZE;
-      
-      setTotalSpace(totalMem);
-      setUsedSpace(estimatedUsedSpace);
-      setLoading(false);
-      setIsReloading(false);
-    } catch (error) {
-      console.error('Error loading storage info:', error);
-      setLoading(false);
-      setIsReloading(false);
-    }
-  }, [folders]);
+  const totalFolders = folders.length;
+  const totalPhotos = folders.reduce((total, folder) => {
+    const photos = folder.photos || [];
+    return total + photos.length;
+  }, 0);
 
-  const handleReload = async () => {
-    setIsReloading(true);
-    await loadFolders();
-    await loadStorageInfo();
-  };
-
-  // Atualiza apenas o número de pastas e fotos quando mudam
-  useEffect(() => {
-    if (!loading) {
-      setIsReloading(false);
-    }
-  }, [folders, loading]);
-
-  // Atualiza quando a tela recebe foco pela primeira vez
-  useFocusEffect(
-    useCallback(() => {
-      if (!hasLoadedOnFocus.current) {
-        loadFolders();
-        loadStorageInfo();
-        hasLoadedOnFocus.current = true;
-      }
-    }, [loadFolders, loadStorageInfo])
-  );
-
-  const percentage = (usedSpace / totalSpace) * 100;
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <Text style={styles.loadingText}>Calculando espaço...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  const totalPhotos = folders.reduce((total, folder) => total + folder.photos.length, 0);
+  const stats = [
+    {
+      title: 'Total de Pastas',
+      value: totalFolders,
+      icon: 'folder',
+      color: Colors.light.primary,
+    },
+    {
+      title: 'Total de Fotos',
+      value: totalPhotos,
+      icon: 'photo',
+      color: Colors.light.success,
+    },
+  ];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Armazenamento</Text>
-        <TouchableOpacity 
-          style={styles.reloadButton} 
-          onPress={handleReload}
-          disabled={isReloading}
-        >
-          {isReloading ? (
-            <ActivityIndicator size="small" color={Colors.light.primary} />
-          ) : (
-            <Ionicons 
-              name="reload" 
-              size={24} 
-              color={Colors.light.primary} 
-            />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.statsContainer}>
-        <CircularProgressBase
-          value={percentage}
-          radius={80}
-          duration={2000}
-          activeStrokeWidth={12}
-          inActiveStrokeWidth={12}
-          activeStrokeColor={percentage > 90 ? Colors.light.error : Colors.light.primary}
-          inActiveStrokeColor={Colors.light.gray[200]}
-        />
-        <View style={styles.statsInfo}>
-          <Text style={[
-            styles.usedSpace,
-            percentage > 90 && { color: Colors.light.error }
-          ]}>
-            {formatBytes(usedSpace)}
-          </Text>
-          <Text style={styles.totalSpace}>
-            de {formatBytes(totalSpace)}
-          </Text>
-          <Text style={[
-            styles.percentageText,
-            percentage > 90 && { color: Colors.light.error }
-          ]}>
-            {percentage.toFixed(1)}% utilizado
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.detailsContainer}>
-        <Text style={styles.detailTitle}>Detalhes do Armazenamento</Text>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Total de Pastas:</Text>
-          <Text style={styles.detailValue}>{folders.length}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Total de Fotos:</Text>
-          <Text style={styles.detailValue}>{totalPhotos}</Text>
-        </View>
-      </View>
-
-      <View style={styles.infoContainer}>
-        <Text style={styles.infoText}>
-          Utilizamos o armazenamento interno do seu dispositivo para maior agilidade e sem custos adicionais. 
-          Toque no ícone de atualizar para ver as mudanças mais recentes.
+        <Text style={styles.title}>Estatísticas</Text>
+        <Text style={styles.subtitle}>
+          Veja um resumo das suas fotos e pastas
         </Text>
       </View>
-    </SafeAreaView>
+
+      <View style={styles.statsGrid}>
+        {stats.map((stat, index) => (
+          <View key={index} style={styles.statCard}>
+            <View style={[styles.iconContainer, { backgroundColor: stat.color + '20' }]}>
+              <IconSymbol name={stat.icon} size={24} color={stat.color} />
+            </View>
+            <Text style={styles.statValue}>{stat.value}</Text>
+            <Text style={styles.statTitle}>{stat.title}</Text>
+          </View>
+        ))}
+      </View>
+
+      {folders.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>Suas Pastas</Text>
+          <View style={styles.folderList}>
+            {folders.map((folder) => (
+              <View key={folder.id} style={styles.folderItem}>
+                <View style={styles.folderIcon}>
+                  <IconSymbol name="folder.fill" size={24} color={Colors.light.primary} />
+                </View>
+                <View style={styles.folderInfo}>
+                  <Text style={styles.folderName}>{folder.name}</Text>
+                  <Text style={styles.folderCount}>
+                    {folder.photos?.length || 0} {(folder.photos?.length || 0) === 1 ? 'foto' : 'fotos'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+    </ScrollView>
   );
 }
 
@@ -162,87 +79,91 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.background,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    marginTop: 10,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.light.text,
+    marginBottom: 4,
   },
-  reloadButton: {
-    width: 40,
-    height: 40,
+  subtitle: {
+    fontSize: 14,
+    color: Colors.light.gray[500],
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 16,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 20,
-  },
-  statsContainer: {
-    alignItems: 'center',
-  },
-  statsInfo: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  usedSpace: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: Colors.light.primary,
-  },
-  totalSpace: {
-    fontSize: 16,
-    color: Colors.light.gray[500],
-    marginTop: 4,
-  },
-  percentageText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: Colors.light.primary,
-    marginTop: 8,
-  },
-  detailsContainer: {
-    width: '100%',
-    marginTop: 40,
-    padding: 20,
-    backgroundColor: Colors.light.gray[100],
-    borderRadius: 12,
-  },
-  detailTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: 16,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 12,
   },
-  detailLabel: {
-    fontSize: 16,
-    color: Colors.light.gray[500],
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.light.text,
+    marginBottom: 4,
   },
-  detailValue: {
+  statTitle: {
+    fontSize: 14,
+    color: Colors.light.gray[500],
+    textAlign: 'center',
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: Colors.light.text,
+    marginTop: 24,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  folderList: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  folderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  folderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.light.primary + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  folderInfo: {
+    flex: 1,
+  },
+  folderName: {
     fontSize: 16,
     fontWeight: '500',
     color: Colors.light.text,
+    marginBottom: 2,
   },
-  infoContainer: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  infoText: {
-    fontSize: 12,
-    color: Colors.light.gray[500],
-    textAlign: 'center',
-    lineHeight: 16,
-  },
-  loadingText: {
-    fontSize: 16,
+  folderCount: {
+    fontSize: 14,
     color: Colors.light.gray[500],
   },
 });
